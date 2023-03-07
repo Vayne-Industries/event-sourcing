@@ -1,0 +1,5 @@
+.idea/
+bin/
+obj/
+credentials.json
+*.sln.DotSettings.user
