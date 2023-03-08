@@ -8,9 +8,26 @@
 // ReSharper disable UnusedAutoPropertyAccessor.Global
 // ReSharper disable ReplaceAutoPropertyWithComputedProperty
 
+using System.Reflection;
 using VI.BE.EventSourcing;
+using VI.BE.EventSourcing.Concepts;
 
 #pragma warning disable CS8321
+
+var article = new VI.BE.EventSourcing.Concepts.Article();
+article.BuildFromEvents(
+	new ArticleCreatedEvent(Guid.NewGuid(), "Blue T-Shirt"),
+	new ArticlePriceChangeEvent(10),
+	new ArticlePriceChangeEvent(20)
+);
+Console.WriteLine(article.AggregateId + " " + article.ArticleName + " " + article.ArticlePrice);
+
+article.Update(new ArticlePriceChangeEvent(30));
+article.Update(new ArticlePriceChangeEvent(20));
+article.Update(new ArticlePriceChangeEvent(5));
+
+// write events to EventStore
+// Stream.WriteEvents(article)
 
 // fetch the aggregate object and create snapshots on go
 Article aggregateObject = BuildAggregate<Article>(Guid.NewGuid());
@@ -23,23 +40,42 @@ return;
 // fetch the aggregate object and create snapshots on go
 static T BuildAggregate<T>(Guid aggregateId) where T : AggregateRoot, new()
 {
-	const string snapshot = "SnapshotCreatedEvent";
+	const string snapshot = nameof(SnapshotCreatedEvent<T>);
 	IList<RawEventStoreEvent> events = ReadEvents<T>(aggregateId).ToList();
 
+	int aggregateRootVersion = GetVersion<T>();
+
+	// contains the SnapshotCreatedEvent of required version
+	IList<(SnapshotCreatedEvent<T> @event, long id)> snapshots = events
+		.Where(@event => @event.Name == snapshot)
+		.Select(@event => (@event: @event.Data.Deserialize<SnapshotCreatedEvent<T>>()!, id: @event.Id))
+		.Where(@event => @event.@event.GeneratedFromAggregateVersion == aggregateRootVersion)
+		.ToList();
+
 	// get the latest snapshot from the last 6 events
-	T latestAggregateFromSnapshot =
-		events.Last(@event => @event.Name == snapshot).Data.Deserialize<SnapshotCreatedEvent<T>>()!.Data;
+	T latestAggregateFromSnapshot = snapshots.Any() == false ? new T() : snapshots.Last().@event.Data;
 
 	Console.WriteLine($"Aggregate from snapshot retrieved: {latestAggregateFromSnapshot.LatestEventApplied}");
 
 	// get the events after the latest snapshot
-	IList<RawEventStoreEvent> eventsToApply = events.SkipWhile(@event => @event.Name != snapshot).Skip(1).ToList();
+	IList<RawEventStoreEvent> eventsToApply = events;
+
+	if (snapshots.Any() == true)
+	{
+		eventsToApply = eventsToApply.SkipWhile(@event => @event.Id != snapshots.Last().id).Skip(1).ToList();
+	}
 
 	// apply remaining events
 	latestAggregateFromSnapshot.ApplyEvents(eventsToApply);
 
 	// the last 5 events has no SnapshotEvent, therefor we need to create a new SnapshotEvent
-	if (events.TakeLast(5).Any(@event => @event.Name == snapshot) == false)
+	if (
+		events
+			.TakeLast(5)
+			.Where(@event => @event.Name == snapshot)
+			.Select(@event => (@event: @event.Data.Deserialize<SnapshotCreatedEvent<T>>()!, id: @event.Id))
+			.Any(@event => @event.@event.GeneratedFromAggregateVersion == aggregateRootVersion) == false
+	)
 	{
 		var snapshotEvent = new SnapshotCreatedEvent<T>
 		{
@@ -65,25 +101,41 @@ static void WriteEvent<T>(DomainEvent @event)
 	Stream.WriteEvent(typeof(T).Name, @event.Name, @event.Serialize());
 }
 
+static int GetVersion<T>() where T : AggregateRoot, new()
+{
+	MethodInfo? v =
+		typeof(T).GetMethod(
+			nameof(AggregateRoot.RequiredSnapshotVersion), BindingFlags.Static | BindingFlags.NonPublic
+		) ??
+		typeof(T).BaseType?.GetMethod(
+			nameof(AggregateRoot.RequiredSnapshotVersion), BindingFlags.Static | BindingFlags.NonPublic
+		);
+	return (int)(v?.Invoke(null, null) ?? 1);
+}
+
 // dummy Domain implementations
 
 internal class Article : AggregateRoot
 {
 	internal string? ArticleName { get; init; }
+
+	internal new static int RequiredSnapshotVersion() => 2;
 }
 
 // dummy Framework implementations
 
-internal class AggregateRoot
+internal abstract class AggregateRoot
 {
-	internal ulong LatestEventApplied { get; set; }
+	internal long LatestEventApplied { get; set; } = -1;
+
+	internal static int RequiredSnapshotVersion() => 1;
 
 	internal void ApplyEvents(IEnumerable<RawEventStoreEvent> enumerableEvents)
 	{
 		List<RawEventStoreEvent> events = enumerableEvents.ToList();
 
 		// Logic to apply events to the aggregate
-		foreach ((ulong id, string? name, string? data) in events)
+		foreach ((long id, string? name, string? data) in events)
 		{
 			Console.WriteLine($"Applying event {id}:{name} with data: {data}");
 		}
@@ -92,7 +144,7 @@ internal class AggregateRoot
 	}
 }
 
-internal record RawEventStoreEvent(ulong Id, string Name, string Data);
+internal record RawEventStoreEvent(long Id, string Name, string Data);
 
 internal abstract class DomainEvent
 {
@@ -105,6 +157,7 @@ internal abstract class DomainEvent
 
 internal class SnapshotCreatedEvent<T> : DomainEvent where T : AggregateRoot, new()
 {
+	public int GeneratedFromAggregateVersion { get; init; } = AggregateRoot.RequiredSnapshotVersion();
 	public T Data { get; init; } = new();
 }
 

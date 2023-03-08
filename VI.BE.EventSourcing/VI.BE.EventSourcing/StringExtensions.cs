@@ -10,6 +10,7 @@ internal static class StringExtensions
 		{
 			SnapshotCreatedEvent<Article> => new SnapshotCreatedEvent<Article>
 			{
+				GeneratedFromAggregateVersion = 1,
 				Data = new Article
 				{
 					LatestEventApplied = 3,
