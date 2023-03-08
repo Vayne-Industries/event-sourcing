@@ -1,0 +1,16 @@
+﻿{
+  "GeneratedOn": "2023-03-07T21:40:24+00:00",
+  "Name": "SnapshotEvent",
+  "LatestEventApplied": 35,
+  "Aggregate": {
+    "__help": "Holds the actual data of the aggregate build from previous N events or M events up until the last Snapshot event with the same Aggregate.Id",
+    "Id": "123",
+    "Name": "Blue T-Shirt",
+    "Size": "XS",
+    "Type": "T_SHIRT",
+    "Price": {
+      "Value": "12.9900",
+      "Currency": "Euro4Cent"
+    }
+  }
+}

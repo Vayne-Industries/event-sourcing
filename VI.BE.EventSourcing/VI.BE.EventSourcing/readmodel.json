@@ -1,0 +1,14 @@
+﻿{
+  "GeneratedOn": "2023-03-07T21:40:24+00:00",
+  "Name": "ArticleWithPrice",
+  "LatestEventApplied": 35,
+  "ProjectionName": "ArticlePriceReadModelProjection",
+  "Model": {
+    "__help": "Holds the actual data of the read model that was build from events.",
+    "Id": "123",
+    "Price": {
+      "Value": "12.9900",
+      "Currency": "Euro4Cent"
+    }
+  }
+}
